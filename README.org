@@ -24,14 +24,14 @@ but I will use simplejson (just because).
 
 ** Parsing a simple JSON document
 
-#+BEGIN_QUOTE
+#+BEGIN_EXAMPLE
 >>> import jsonschema
 >>> jsonschema.validate("simplejson", {"type":"string"})
-#+END_QUOTE
+#+END_EXAMPLE
 
 ** Parsing a more complex JSON document.
 
-#+BEGIN_QUOTE
+#+BEGIN_EXAMPLE
 >>> import simplejson
 >>> import jsonschema
 >>> 
@@ -56,13 +56,13 @@ but I will use simplejson (just because).
 ... }
 >>> jsonschema.validate(data,schema)
 
-#+END_QUOTE
+#+END_EXAMPLE
 
 ** Handling validation errors
 
 ValueErrors are thrown when validation errors occur.
 
-#+BEGIN_QUOTE
+#+BEGIN_EXAMPLE
 >>> import jsonschema
 >>> try:
 ...     jsonschema.validate("simplejson", {"type":"string","minLength":15})
@@ -71,7 +71,7 @@ ValueErrors are thrown when validation errors occur.
 ... 
 Length of 'simplejson' must be more than 15.000000
 
-#+END_QUOTE
+#+END_EXAMPLE
 
 * EXTENDING JSONSCHEMA
 
