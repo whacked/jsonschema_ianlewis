@@ -6,6 +6,85 @@ following url:
 
 http://groups.google.com/group/json-schema/web/json-schema-proposal---second-draft
 
+** LIMITATIONS
+
+References are currently not supported. (see below)
+
+The unique property is currently not validated.
+
+** this fork
+
+   contains hacks added a while ago, I don't remember everything, and
+   they are untested. The main modifications appear to be regarding
+   =$ref= and =typedef=
+
+*** =$ref= support
+
+    there appears to be awareness of =$ref=. I'm not sure how thorough
+    and correct.  the current commit supports a syntax of
+
+#+BEGIN_EXAMPLE
+  {
+    "config": { "$ref": "$(file:///path/to/schema.json).properties.config" },
+  }
+#+END_EXAMPLE
+    
+    where your referenced =schema.json= could contain something like
+
+#+BEGIN_EXAMPLE
+  {
+    "properties": {
+      "config": {
+        "type": "object",
+        "properties": {
+          "somevalue": { "type": "integer"}
+        }
+      }
+  }
+#+END_EXAMPLE
+
+    then the config substitution takes place. This is probably not the
+    expected =$ref= lookup syntax, so this part will be modified to
+    match the syntax if possible.
+
+*** =typedef= attribute
+
+    To my understanding, at the time of this hack (Ian Lewis's 0.2a, following schema v2), and the time
+    of this writing ([[http://tools.ietf.org/html/draft-zyp-json-schema-03][version 3]]), there isn't an attribute that allows for type definitions embedded
+    within the schema. In this fork, you specify such an embedded schema like so:
+
+#+BEGIN_EXAMPLE
+  {
+    "description": "example schema with typedef",
+    "type": "object",
+    "properties": {
+      "typedef_object": {
+        "$ref": "$.typedef.referenced_typedef"
+      }
+    },
+  
+    "typedef": {
+      "referenced_typedef": {
+        "type": "object",
+        "properties": {
+          "foo" : { "type": "integer" },
+          "bar" : { "type": "number" }
+        }
+      }
+    }
+  }
+#+END_EXAMPLE
+
+    Then =typedef_object= ends up with the schema specified by
+    =schema["typedef"]["referenced_typedef"]=
+
+    The validator should look for =typedef= before processing the rest
+    of the schema, cache the internal strictures, and substitute as
+    referenced. Again, the syntax probably violates JSON Schema, so
+    this is subject to change. Julian's jsonschema implementation also
+    seems more active, so that's probably the future direction for this
+    little fork as well.
+
 * INSTALL
 
 jsonschema uses setup tools so it can be installed normally using:
@@ -80,8 +159,3 @@ overridden to support special property support or extended functionality.
 Samples of how jsonschema can be extended can be found in the examples
 directory.
 
-* LIMITATIONS
-
-References are currently not supported.
-
-The unique property is currently not validated.

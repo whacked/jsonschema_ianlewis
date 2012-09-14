@@ -7,23 +7,42 @@
 #TODO: Support inline schema
 
 import types, sys, re, copy
+import exceptions, jsonlib
+
+class JSONError(exceptions.ValueError):
+  def __init__(self, message = ''):
+    self._message = message
+
+  def _get_message(self):
+    return self._message
+  def _set_message(self, message): 
+    self._message = message
+  message = property(_get_message, _set_message)
+
+  def __str__(self):
+    return "\n *** %s" % (self._message)
+
+class JSONProp:
+  def __init__(self):
+    self.key = None
+    self.val = None
 
 class JSONSchemaValidator:
   '''
   Implementation of the json-schema validator that adheres to the 
   JSON Schema Proposal 2nd Draft.
   '''
-  
+
   # Map of schema types to their equivalent in the python types module
   _typesmap = {
-    "string": [types.StringType, types.UnicodeType],
-    "integer": types.IntType,
-    "number": [types.IntType, types.FloatType],
-    "boolean": types.BooleanType,
-    "object": types.DictType,
-    "array": types.ListType,
-    "null": types.NoneType,
-    "any": None
+    "string"  : [types.StringType, types.UnicodeType],
+    "integer" : [types.IntType, types.LongType],
+    "number"  : [types.IntType, types.LongType, types.FloatType],
+    "boolean" : types.BooleanType,
+    "object"  : types.DictType,
+    "array"   : types.ListType,
+    "null"    : types.NoneType,
+    "any"     : None
   }
   
   # Default schema property values.
@@ -54,11 +73,16 @@ class JSONSchemaValidator:
     "maxDecimal": None,
     "hidden": None,
     "disallow": None,
-    "extends": None
+    "extends": None,
+
+    # whacked addition
+    "typedef": None,
   }
   
   _refmap = {}
   
+  _propmap = {}
+
   _interactive_mode = True
   
   def __init__(self, interactive_mode=True):
@@ -70,7 +94,7 @@ class JSONSchemaValidator:
     '''
     if ID is not None:
       if ID == "$":
-        raise ValueError("Reference id for field '%s' cannot equal '$'" % fieldname)
+        raise JSONError("Reference id for field '%s' cannot equal '$'" % fieldname)
       self._refmap[ID] = schema
     return x
   
@@ -103,7 +127,7 @@ class JSONSchemaValidator:
           except ValueError:
             pass
         if not datavalid:
-          raise ValueError("Value %r for field '%s' is not of type %r" % (value, fieldname, fieldtype))
+          raise JSONError("Value %r for field '%s' is not of type %r" % (value, fieldname, fieldtype))
       elif type(converted_fieldtype) == types.DictType:
         try:
           self.__validate(fieldname, x, converted_fieldtype)
@@ -111,7 +135,7 @@ class JSONSchemaValidator:
           raise e
       else:
         if type(value) != converted_fieldtype:
-          raise ValueError("Value %r for field '%s' is not of type %r" % (value, fieldname, fieldtype))
+          raise JSONError("Value %r for field '%s' is not of type %r" % (value, fieldname, fieldtype))
     return x
   
   def validate_properties(self, x, fieldname, schema, properties=None):
@@ -125,11 +149,133 @@ class JSONSchemaValidator:
         if type(value) == types.DictType:
           if type(properties) == types.DictType:
             for eachProp in properties.keys():
-              self.__validate(eachProp, value, properties.get(eachProp))
+              # pretty messy
+              if eachProp[0] == '&':
+                # given a validator type for the KEY of the dict
+                for key in value.keys():
+                  # it doesn't really do anything. just reads
+                  # the required type and tries to case it. if
+                  # exception thrown it is python native and not
+                  # json error.
+
+                  # it also doesn't actually care about the
+                  # key-val mapping. i.e., if you have even just
+                  # more than one key-val in the dictinoary this
+                  # WILL fail.  it will indiscriminately run
+                  # filters on all possible key-val pairs!
+
+                  # the reason for this problem is because we
+                  # cannot predict which will get parsed and
+                  # validated first, key or val so if we trie to
+                  # validate in order, there could be a key not
+                  # exist error (using self._propmap). therefore
+                  # opted for this "validate when get" method a
+                  # better way is to store the key-val in buffer
+                  # using self._propmap when both are filled up,
+                  # run the validation this means for example,
+                  # if val is filled up first:
+                  # self._propmap[data][val] = val
+                  # self._propmap[validator][val] =
+                  # properties.get(eachProp) ...  if
+                  # len(self._propmap[data]) == 2 and
+                  # len(self._propmap[validator]) == 2: both key
+                  # and val filled, NOW RUN validation
+                  reqtype = properties.get(eachProp)['type']
+                  if reqtype == 'integer':
+                    filterfn = int
+                  elif reqtype == 'number':
+                    filterfn = float
+                  else:
+                    filterfn = str
+                  self.__validate("_data", {"_data": filterfn(key)}, properties.get(eachProp))
+              elif eachProp[0] == '*':
+                for val in value.values():
+                  self.__validate("_data", {"_data": val}, properties.get(eachProp))
+              else:
+                self.__validate(eachProp, value, properties.get(eachProp))
           else:
-            raise ValueError("Properties definition of field '%s' is not an object" % fieldname)
+            raise JSONError("Properties definition of field '%s' is not an object" % fieldname)
     return x
   
+  def validate_key(self, x, fieldname, schema, properties=None):
+    return x
+  
+  def validate_value(self, x, fieldname, schema, properties=None):
+    return x
+
+  def recursivedescent(self, root, subroot = None):
+    if not subroot:
+      subroot = root
+    for key, val in subroot.items():
+      if key == '$ref' and (type(val) == types.StringType or type(val) == types.UnicodeType):
+        # no handling of errors here -- assume all correct
+        # uncatched exception if error!
+        if val[:2] == '$.':
+          lookup_path = val.split('.')[1:]
+          lookup_obj = root
+        elif val[:2] == '$(':
+          closeparen = val.find(')')
+          if closeparen > 0:
+            ext_scm_path = val[2:closeparen]
+            if ext_scm_path.startswith('file://'):
+              ext_scm_path = ext_scm_path[7:]
+            ext_json   = jsonlib.read(open(ext_scm_path).read())
+            # construct FULL schema on target
+            lookup_path = val[closeparen+1:].split('.')[1:]
+            lookup_obj = self.recursivedescent(ext_json)
+        for deeper in lookup_path:
+          # princol(bcYellow, "deeper:", deeper)
+          lookup_obj = lookup_obj.get(deeper)
+        if not lookup_obj:
+          from termcolor import colored
+          print colored("ERROR: key not found -- %s" % (deeper), 'yellow', 'on_red')
+            
+        # substitute the reference
+        # python's pass by reference makes this easy
+        # princol(bcRed, "SUB", fcNone, fcGreen, key, fcWhite, "=>", fcYellow, val, fcWhite, "with", fcBlue, lookup_obj)
+        # princol(fcYellow, bcBlack, "WAS", subroot)
+        subroot = lookup_obj
+        # princol(bcGreen, "NOW", subroot)
+            
+      elif type(val) == types.DictType:
+        modval = self.recursivedescent(root, val)
+        if modval != val:
+          # i think this is what is happening: if you just do "val = modval"
+          # this only changes the pointer that val contains, in this local
+          # scope.  the pointer stored in subroot[key] still points to the old
+          # val so you must actually repoint subroot[key] instead
+          subroot[key] = modval
+    return subroot
+
+  def validate_typedef(self, x, fieldname, schema, properties=None):
+    """
+    next is to work on $ref loading mechanism
+    since typedef can read its own typedef
+    you need to cache the typedef first
+
+    test case:
+    {
+    "typedef": {
+    "dataitem": {
+    "type": "object",
+    "properties": {
+    "a": { "type": "integer" },
+    "r": { "type": "number" }
+    }
+    },
+    "datasequence": {
+    "type": "array",
+    "items": { "$ref": "$.typedef.dataitem" }
+    }
+    }
+    }
+    """
+    if properties is not None:
+      #print "process typedef"
+      schema = self.recursivedescent(schema)
+
+    return x
+
   def validate_items(self, x, fieldname, schema, items=None):
     '''
     Validates that all items in the list for the given field match the
@@ -145,17 +291,17 @@ class JSONSchemaValidator:
                 try:
                   self.validate(value[itemIndex], items[itemIndex])
                 except ValueError, e:
-                  raise ValueError("Failed to validate field '%s' list schema: %r" % (fieldname, e.message))
+                  raise JSONError("Failed to validate field '%s' list schema: %r" % (fieldname, e.message))
             else:
-              raise ValueError("Length of list %r for field '%s' is not equal to length of schema list" % (value, fieldname))
+              raise JSONError("Length of list %r for field '%s' is not equal to length of schema list" % (value, fieldname))
           elif type(items) == types.DictType:
             for eachItem in value:
                 try:
                   self._validate(eachItem, items)
                 except ValueError, e:
-                  raise ValueError("Failed to validate field '%s' list schema: %r" % (fieldname, e.message))
+                  raise JSONError("Failed to validate field '%s' list schema: %r" % (fieldname, e.message))
           else:
-            raise ValueError("Properties definition of field '%s' is not a list or an object" % fieldname)
+            raise JSONError("Properties definition of field '%s' is not a list or an object" % fieldname)
     return x
   
   def validate_optional(self, x, fieldname, schema, optional=False):
@@ -164,7 +310,7 @@ class JSONSchemaValidator:
     '''
     # Make sure the field is present
     if fieldname not in x.keys() and not optional:
-      raise ValueError("Required field '%s' is missing" % fieldname)
+      raise JSONError("Required field '%s' is missing" % fieldname)
     return x
   
   def validate_additionalProperties(self, x, fieldname, schema, additionalProperties=None):
@@ -189,16 +335,16 @@ class JSONSchemaValidator:
             # If additionalProperties is the boolean value False then we 
             # don't accept any additional properties.
             if type(additionalProperties) == types.BooleanType and additionalProperties == False:
-              raise ValueError("Additional properties not defined by 'properties' are not allowed in field '%s'" % fieldname)
+              raise JSONError("Additional properties not defined by 'properties' are not allowed in field '%s'" % fieldname)
             self.__validate(eachProperty, value, additionalProperties)
       else:
-        raise ValueError("additionalProperties schema definition for field '%s' is not an object" % fieldname)
+        raise JSONError("additionalProperties schema definition for field '%s' is not an object" % fieldname)
     return x
   
   def validate_requires(self, x, fieldname, schema, requires=None):
     if x.get(fieldname) is not None and requires is not None:
       if x.get(requires) is None:
-        raise ValueError("Field '%s' is required by field '%s'" % (requires, fieldname))
+        raise JSONError("Field '%s' is required by field '%s'" % (requires, fieldname))
     return x
   
   def validate_identity(self, x, fieldname, schema, unique=False):
@@ -213,9 +359,9 @@ class JSONSchemaValidator:
       value = x.get(fieldname)
       if value is not None:
         if type(value) in (types.IntType,types.FloatType) and value < minimum:
-          raise ValueError("Value %r for field '%s' is less than minimum value: %f" % (value, fieldname, minimum))
+          raise JSONError("Value %r for field '%s' is less than minimum value: %f" % (value, fieldname, minimum))
         elif type(value) == types.ListType and len(value) < minimum:
-          raise ValueError("Value %r for field '%s' has fewer values than the minimum: %f" % (value, fieldname, minimum))
+          raise JSONError("Value %r for field '%s' has fewer values than the minimum: %f" % (value, fieldname, minimum))
     return x
   
   def validate_maximum(self, x, fieldname, schema, maximum=None):
@@ -227,9 +373,9 @@ class JSONSchemaValidator:
       value = x.get(fieldname)
       if value is not None:
         if type(value) in (types.IntType, types.FloatType) and value > maximum:
-          raise ValueError("Value %r for field '%s' is greater than maximum value: %f" % (value, fieldname, maximum))
+          raise JSONError("Value %r for field '%s' is greater than maximum value: %f" % (value, fieldname, maximum))
         elif type(value) == types.ListType and len(value) > maximum:
-          raise ValueError("Value %r for field '%s' has more values than the maximum: %f" % (value, fieldname, maximum))
+          raise JSONError("Value %r for field '%s' has more values than the maximum: %f" % (value, fieldname, maximum))
     return x
   
   def validate_minItems(self, x, fieldname, schema, minitems=None):
@@ -241,7 +387,7 @@ class JSONSchemaValidator:
       value = x.get(fieldname)
       if value is not None:
         if type(value) == types.ListType and len(value) < minitems:
-          raise ValueError("Value %r for field '%s' must have a minimum of %d items" % (fieldname, fieldname, minitems))
+          raise JSONError("Value %r for field '%s' must have a minimum of %d items" % (fieldname, fieldname, minitems))
     return x
   
   def validate_maxItems(self, x, fieldname, schema, maxitems=None):
@@ -253,7 +399,7 @@ class JSONSchemaValidator:
       value = x.get(fieldname)
       if value is not None:
         if type(value) == types.ListType and len(value) > maxitems:
-          raise ValueError("Value %r for field '%s' must have a maximum of %d items" % (value, fieldname, maxitems))
+          raise JSONError("Value %r for field '%s' must have a maximum of %d items" % (value, fieldname, maxitems))
     return x
   
   def validate_pattern(self, x, fieldname, schema, pattern=None):
@@ -267,7 +413,7 @@ class JSONSchemaValidator:
        self._is_string_type(value):
       p = re.compile(pattern)
       if not p.match(value):
-        raise ValueError("Value %r for field '%s' does not match regular expression '%s'" % (value, fieldname, pattern))
+        raise JSONError("Value %r for field '%s' does not match regular expression '%s'" % (value, fieldname, pattern))
     return x
   
   def validate_maxLength(self, x, fieldname, schema, length=None):
@@ -280,7 +426,7 @@ class JSONSchemaValidator:
        value is not None and \
        self._is_string_type(value) and \
        len(value) > length:
-      raise ValueError("Length of value %r for field '%s' must be less than or equal to %f" % (value, fieldname, length))
+      raise JSONError("Length of value %r for field '%s' must be less than or equal to %f" % (value, fieldname, length))
     return x
     
   def validate_minLength(self, x, fieldname, schema, length=None):
@@ -293,7 +439,7 @@ class JSONSchemaValidator:
        value is not None and \
        self._is_string_type(value) and \
        len(value) < length:
-      raise ValueError("Length of value %r for field '%s' must be more than or equal to %f" % (value, fieldname, length))
+      raise JSONError("Length of value %r for field '%s' must be more than or equal to %f" % (value, fieldname, length))
     return x
   
   def validate_enum(self, x, fieldname, schema, options=None):
@@ -304,9 +450,9 @@ class JSONSchemaValidator:
     value = x.get(fieldname)
     if options is not None and value is not None:
       if not type(options) == types.ListType:
-        raise ValueError("Enumeration %r for field '%s' is not a list type", (options, fieldname))
+        raise JSONError("Enumeration %r for field '%s' is not a list type", (options, fieldname))
       if value not in options:
-        raise ValueError("Value %r for field '%s' is not in the enumeration: %r" % (value, fieldname, options))
+        raise JSONError("Value %r for field '%s' is not in the enumeration: %r" % (value, fieldname, options))
     return x
   
   def validate_options(self, x, fieldname, schema, options=None):
@@ -318,13 +464,13 @@ class JSONSchemaValidator:
   def validate_title(self, x, fieldname, schema, title=None):
     if title is not None and \
        not self._is_string_type(title):
-      raise ValueError("The title for field '%s' must be a string" % fieldname);
+      raise JSONError("The title for field '%s' must be a string" % fieldname);
     return x
   
   def validate_description(self, x, fieldname, schema, description=None):
     if description is not None and \
        not self._is_string_type(description):
-      raise ValueError("The description for field '%s' must be a string." % fieldname);
+      raise JSONError("The description for field '%s' must be a string." % fieldname);
     return x
   
   def validate_format(self, x, fieldname, schema, format=None):
@@ -357,7 +503,7 @@ class JSONSchemaValidator:
     if maxdecimal is not None and value is not None:
       maxdecstring = str(value)
       if len(maxdecstring[maxdecstring.find(".")+1:]) > maxdecimal:
-        raise ValueError("Value %r for field '%s' must not have more than %d decimal places" % (value, fieldname, maxdecimal))
+        raise JSONError("Value %r for field '%s' must not have more than %d decimal places" % (value, fieldname, maxdecimal))
     return x
   
   def validate_hidden(self, x, fieldname, schema, hidden=False):
@@ -373,7 +519,7 @@ class JSONSchemaValidator:
         self.validate_type(x, fieldname, schema, disallow)
       except ValueError:
         return x
-      raise ValueError("Value %r of type %s is disallowed for field '%s'" % (x.get(fieldname), disallow, fieldname))
+      raise JSONError("Value %r of type %s is disallowed for field '%s'" % (x.get(fieldname), disallow, fieldname))
     return x
   
   def validate_extends(self, x, fieldname, schema, extends=None):
@@ -394,7 +540,7 @@ class JSONSchemaValidator:
       if fieldtype in self._typesmap.keys():
         return self._typesmap[fieldtype]
       else:
-        raise ValueError("Field type '%s' is not supported." % fieldtype)
+        raise JSONError("Field type '%s' is not supported." % fieldtype)
   
   def validate(self, data, schema):
     '''
@@ -416,13 +562,16 @@ class JSONSchemaValidator:
     
     if schema is not None:
       if not type(schema) == types.DictType:
-        raise ValueError("Schema structure is invalid.");
+        raise JSONError("Schema structure is invalid.");
       
       # Produce a copy of the schema object since we will make changes to
       # it to process default values. Deep copy is not necessary since we will
       # produce a copy of sub items on the next recursive call.
       
+      self.recursivedescent(schema)
+
       new_schema = copy.copy(schema)
+      
       #Initialize defaults
       for schemaprop in self._schemadefault.keys():
         if schemaprop not in new_schema:
@@ -438,7 +587,7 @@ class JSONSchemaValidator:
           # copy in order to validate default values.
           validator(data, fieldname, schema, new_schema.get(schemaprop))
         except AttributeError, e:
-          raise ValueError("Schema property '%s' is not supported" % schemaprop)
+          raise JSONError("Schema property '%s' is not supported" % schemaprop)
       
     return data
   
