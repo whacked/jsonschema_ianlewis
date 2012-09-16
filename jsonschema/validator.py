@@ -6,8 +6,9 @@
 #TODO: Support references
 #TODO: Support inline schema
 
-import types, sys, re, copy
+import types, sys, re, copy, os
 import exceptions, jsonlib
+import json
 
 class JSONError(exceptions.ValueError):
   def __init__(self, message = ''):
@@ -213,6 +214,7 @@ class JSONSchemaValidator:
               if val[:2] == '#/':
                   lookup_path = val.split('/')[1:]
                   lookup_obj = root
+              # we'll let this go for now
               elif val[:2] == '$(':
                   closeparen = val.find(')')
                   if closeparen > 0:
@@ -223,6 +225,27 @@ class JSONSchemaValidator:
                       # construct FULL schema on target
                       lookup_path = val[closeparen+1:].split('/')[1:]
                       lookup_obj = self.recursivedescent(ext_json)
+              else:
+                  # assume resource URI
+                  spl_ext_scm_path = val.split("://")
+                  if len(spl_ext_scm_path) is 2:
+                      protocol = spl_ext_scm_path[0]
+                      ext_scm_path, json_search_path = spl_ext_scm_path[1].split("#")
+                  else:
+                      protocol = self._protocol
+                      ext_scm_path, json_search_path = val.split("#")
+
+                  if protocol == "file":
+                      if not ext_scm_path.startswith("/"):
+                          # relative path
+                          ext_scm_path = os.path.join(self._basepath, ext_scm_path)
+                      ext_json = json.load(open(ext_scm_path))
+                      lookup_path = json_search_path.split('/')[1:]
+                      lookup_obj = self.recursivedescent(ext_json)
+                          
+                  else:
+                      raise Exception("not implemented yet! protocol: %s" % protocol)
+
               for deeper in lookup_path:
                   # princol(bcYellow, "deeper:", deeper)
                   lookup_obj = lookup_obj.get(deeper)
@@ -542,7 +565,7 @@ class JSONSchemaValidator:
       else:
         raise JSONError("Field type '%s' is not supported." % fieldtype)
   
-  def validate(self, data, schema):
+  def validate(self, data, schema, schema_fullpath = None):
     '''
     Validates a piece of json data against the provided json-schema.
     '''
@@ -550,8 +573,14 @@ class JSONSchemaValidator:
     #TODO: Validate the schema object here.
     
     self._refmap = {
-      '$': schema
+      '#': schema
     }
+
+    if schema_fullpath is None:
+        schema_fullpath = "http://"
+    self._protocol, schema_path = schema_fullpath.split("://")
+    self._basepath = os.path.split(schema_path)[0]
+
     # Wrap the data in a dictionary
     self._validate(data, schema)
   

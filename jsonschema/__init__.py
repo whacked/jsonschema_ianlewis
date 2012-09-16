@@ -76,7 +76,7 @@ from jsonschema.validator import JSONSchemaValidator
 __all__ = [ 'validate', 'JSONSchemaValidator' ]
 __version__ = '0.1a'
 
-def validate(data, schema, validator_cls=None, interactive_mode=True):
+def validate(data, schema, validator_cls=None, interactive_mode=True, schema_fullpath = None):
   '''
   Validates a parsed json document against the provided schema. If an
   error is found a ValueError is raised.
@@ -98,7 +98,7 @@ def validate(data, schema, validator_cls=None, interactive_mode=True):
   if validator_cls == None:
     validator_cls = JSONSchemaValidator
   v = validator_cls(interactive_mode)
-  return v.validate(data,schema)
+  return v.validate(data,schema, schema_fullpath)
 
 if __name__ == '__main__':
   import sys, simplejson
