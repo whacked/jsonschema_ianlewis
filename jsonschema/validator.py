@@ -204,48 +204,48 @@ class JSONSchemaValidator:
     return x
 
   def recursivedescent(self, root, subroot = None):
-    if not subroot:
-      subroot = root
-    for key, val in subroot.items():
-      if key == '$ref' and (type(val) == types.StringType or type(val) == types.UnicodeType):
-        # no handling of errors here -- assume all correct
-        # uncatched exception if error!
-        if val[:2] == '$.':
-          lookup_path = val.split('.')[1:]
-          lookup_obj = root
-        elif val[:2] == '$(':
-          closeparen = val.find(')')
-          if closeparen > 0:
-            ext_scm_path = val[2:closeparen]
-            if ext_scm_path.startswith('file://'):
-              ext_scm_path = ext_scm_path[7:]
-            ext_json   = jsonlib.read(open(ext_scm_path).read())
-            # construct FULL schema on target
-            lookup_path = val[closeparen+1:].split('.')[1:]
-            lookup_obj = self.recursivedescent(ext_json)
-        for deeper in lookup_path:
-          # princol(bcYellow, "deeper:", deeper)
-          lookup_obj = lookup_obj.get(deeper)
-        if not lookup_obj:
-          from termcolor import colored
-          print colored("ERROR: key not found -- %s" % (deeper), 'yellow', 'on_red')
-            
-        # substitute the reference
-        # python's pass by reference makes this easy
-        # princol(bcRed, "SUB", fcNone, fcGreen, key, fcWhite, "=>", fcYellow, val, fcWhite, "with", fcBlue, lookup_obj)
-        # princol(fcYellow, bcBlack, "WAS", subroot)
-        subroot = lookup_obj
-        # princol(bcGreen, "NOW", subroot)
-            
-      elif type(val) == types.DictType:
-        modval = self.recursivedescent(root, val)
-        if modval != val:
-          # i think this is what is happening: if you just do "val = modval"
-          # this only changes the pointer that val contains, in this local
-          # scope.  the pointer stored in subroot[key] still points to the old
-          # val so you must actually repoint subroot[key] instead
-          subroot[key] = modval
-    return subroot
+      if not subroot:
+          subroot = root
+      for key, val in subroot.items():
+          if key == '$ref' and (type(val) == types.StringType or type(val) == types.UnicodeType):
+              # no handling of errors here -- assume all correct
+              # uncatched exception if error!
+              if val[:2] == '$.':
+                  lookup_path = val.split('.')[1:]
+                  lookup_obj = root
+              elif val[:2] == '$(':
+                  closeparen = val.find(')')
+                  if closeparen > 0:
+                      ext_scm_path = val[2:closeparen]
+                      if ext_scm_path.startswith('file://'):
+                          ext_scm_path = ext_scm_path[7:]
+                      ext_json     = jsonlib.read(open(ext_scm_path).read())
+                      # construct FULL schema on target
+                      lookup_path = val[closeparen+1:].split('.')[1:]
+                      lookup_obj = self.recursivedescent(ext_json)
+              for deeper in lookup_path:
+                  # princol(bcYellow, "deeper:", deeper)
+                  lookup_obj = lookup_obj.get(deeper)
+              if not lookup_obj:
+                  from termcolor import colored
+                  print colored("ERROR: key not found -- %s" % (deeper), 'yellow', 'on_red')
+                      
+              # substitute the reference
+              # python's pass by reference makes this easy
+              # princol(bcRed, "SUB", fcNone, fcGreen, key, fcWhite, "=>", fcYellow, val, fcWhite, "with", fcBlue, lookup_obj)
+              # princol(fcYellow, bcBlack, "WAS", subroot)
+              subroot = lookup_obj
+              # princol(bcGreen, "NOW", subroot)
+                      
+          elif type(val) == types.DictType:
+              modval = self.recursivedescent(root, val)
+              if modval != val:
+                  # i think this is what is happening: if you just do "val = modval"
+                  # this only changes the pointer that val contains, in this local
+                  # scope.    the pointer stored in subroot[key] still points to the old
+                  # val so you must actually repoint subroot[key] instead
+                  subroot[key] = modval
+      return subroot
 
   def validate_typedef(self, x, fieldname, schema, properties=None):
     """
