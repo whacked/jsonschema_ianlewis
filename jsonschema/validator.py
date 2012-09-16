@@ -524,7 +524,7 @@ class JSONSchemaValidator:
   
   def validate_extends(self, x, fieldname, schema, extends=None):
     return x
-  
+
   def _convert_type(self, fieldtype):
     if type(fieldtype) in (types.TypeType, types.DictType):
       return fieldtype
@@ -579,15 +579,12 @@ class JSONSchemaValidator:
       
       for schemaprop in new_schema:
         
-        validatorname = "validate_"+schemaprop
-        
-        try:
-          validator = getattr(self, validatorname)
-          # Pass the original schema object but the value of the property from
-          # copy in order to validate default values.
+        validator = getattr(self, "validate_"+schemaprop, None)
+        if validator:
           validator(data, fieldname, schema, new_schema.get(schemaprop))
-        except AttributeError, e:
-          raise JSONError("Schema property '%s' is not supported" % schemaprop)
+        else:
+          info = "Schema property '%s' is not supported" % schemaprop
+          pass
       
     return data
   
