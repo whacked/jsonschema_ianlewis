@@ -7,7 +7,7 @@
 #TODO: Support inline schema
 
 import types, sys, re, copy, os
-import exceptions, jsonlib
+import exceptions
 import json
 
 class JSONError(exceptions.ValueError):
@@ -221,7 +221,7 @@ class JSONSchemaValidator:
                       ext_scm_path = val[2:closeparen]
                       if ext_scm_path.startswith('file://'):
                           ext_scm_path = ext_scm_path[7:]
-                      ext_json     = jsonlib.read(open(ext_scm_path).read())
+                      ext_json     = json.load(open(ext_scm_path))
                       # construct FULL schema on target
                       lookup_path = val[closeparen+1:].split('/')[1:]
                       lookup_obj = self.recursivedescent(ext_json)
