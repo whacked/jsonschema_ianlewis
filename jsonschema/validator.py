@@ -221,7 +221,7 @@ class JSONSchemaValidator:
                           ext_scm_path = ext_scm_path[7:]
                       ext_json     = jsonlib.read(open(ext_scm_path).read())
                       # construct FULL schema on target
-                      lookup_path = val[closeparen+1:].split('.')[1:]
+                      lookup_path = val[closeparen+1:].split('/')[1:]
                       lookup_obj = self.recursivedescent(ext_json)
               for deeper in lookup_path:
                   # princol(bcYellow, "deeper:", deeper)
