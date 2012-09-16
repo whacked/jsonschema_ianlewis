@@ -210,8 +210,8 @@ class JSONSchemaValidator:
           if key == '$ref' and (type(val) == types.StringType or type(val) == types.UnicodeType):
               # no handling of errors here -- assume all correct
               # uncatched exception if error!
-              if val[:2] == '$.':
-                  lookup_path = val.split('.')[1:]
+              if val[:2] == '#/':
+                  lookup_path = val.split('/')[1:]
                   lookup_obj = root
               elif val[:2] == '$(':
                   closeparen = val.find(')')
