@@ -8,50 +8,58 @@ http://groups.google.com/group/json-schema/web/json-schema-proposal---second-dra
 
 ** LIMITATIONS
 
-References are currently not supported. (see below)
-
 The unique property is currently not validated.
 
 ** this fork
+   
+   A temporary solution. Everything is "works for me".
 
-   contains hacks added a while ago, I don't remember everything, and
-   they are untested. The main modifications appear to be regarding
-   =$ref= and =typedef=
+*** rudimentary =$ref= support
+    
+    not thoroughly tested. current code "works" in conjunction with lookup via the =typedef= attribute, otherwise untested.
 
-*** =$ref= support
+    Examples:
 
-    there appears to be awareness of =$ref=. I'm not sure how thorough
-    and correct.  the current commit supports a syntax of
+    1. [DEPRECATED] $(path) lookup syntax
 
 #+BEGIN_EXAMPLE
   {
-    "config": { "$ref": "$(file:///path/to/schema.json).properties.config" },
+    "config": { "$ref": "$(file:///path/to/schema.json)/properties/config" },
   }
 #+END_EXAMPLE
     
-    where your referenced =schema.json= could contain something like
+    2. absolute =file://= lookup
 
 #+BEGIN_EXAMPLE
   {
-    "properties": {
-      "config": {
-        "type": "object",
-        "properties": {
-          "somevalue": { "type": "integer"}
-        }
-      }
+    "config": { "$ref": "file:///path/to/schema.json#/properties/config" },
   }
 #+END_EXAMPLE
 
-    then the config substitution takes place. This is probably not the
-    expected =$ref= lookup syntax, so this part will be modified to
-    match the syntax if possible.
+    3. relative =file://= lookup
 
-*** =typedef= attribute
+#+BEGIN_EXAMPLE
+  {
+    "config": { "$ref": "schema.json#/properties/config" },
+  }
+#+END_EXAMPLE
 
-    To my understanding, at the time of this hack (Ian Lewis's 0.2a, following schema v2), and the time
-    of this writing ([[http://tools.ietf.org/html/draft-zyp-json-schema-03][version 3]]), there isn't an attribute that allows for type definitions embedded
-    within the schema. In this fork, you specify such an embedded schema like so:
+    the validator doesn't know where to look; you set the lookup path when you call =validate=.
+
+*** [DEPRECATED] =typedef= attribute
+
+    this library used to throw an exception when encountering an
+    unsupported attribute. But as of draft [[http://tools.ietf.org/html/draft-zyp-json-schema-03][version 3]] we expect that
+    unknown keywords in the schema are ignored but still reachable via
+    the json lookup path, rendering a separate =typedef= attribute
+    redundant. see
+    https://github.com/json-schema/json-schema/issues/18 for method of
+    achieving the same thing.
+
+    This library probably will not function as expected unless you use
+    the =typedef= keyword, but it certainly is not spec-conforming!
+
+    Sample type lookup:
 
 #+BEGIN_EXAMPLE
   {
@@ -59,7 +67,7 @@ The unique property is currently not validated.
     "type": "object",
     "properties": {
       "typedef_object": {
-        "$ref": "$.typedef.referenced_typedef"
+        "$ref": "#typedef/referenced_typedef"
       }
     },
   
@@ -77,13 +85,6 @@ The unique property is currently not validated.
 
     Then =typedef_object= ends up with the schema specified by
     =schema["typedef"]["referenced_typedef"]=
-
-    The validator should look for =typedef= before processing the rest
-    of the schema, cache the internal strictures, and substitute as
-    referenced. Again, the syntax probably violates JSON Schema, so
-    this is subject to change. Julian's jsonschema implementation also
-    seems more active, so that's probably the future direction for this
-    little fork as well.
 
 * INSTALL
 
